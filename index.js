@@ -3,30 +3,47 @@ const geojsonVt = require('geojson-vt');
 const vtPbf = require('vt-pbf');
 const request = require('requestretry');
 const zlib = require('zlib');
+const groupBy = require('lodash.groupby');
+const zip = require('lodash.zip');
 
 
 const query = `
-  query stops{
-    stops{
+  query trips{
+    trips{
       gtfsId
-      name
-      code
-      platformCode
-      lat
-      lon
-      locationType
-      parentStation{
+      shapeId
+      route{
+        type
+        shortName
         gtfsId
-      }
-      patterns{
-        headsign
-        route{
-          type
-          shortName
-        }
       }
     }
   }`;
+
+
+const tripQuery = id => `
+  query shape{
+    trip(id: "${id}") {
+      geometry
+    }
+  }`;
+
+const tripRequiest = (uri, gtfsId) => ({
+  url: uri,
+  body: tripQuery(gtfsId),
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/graphql'
+  },
+  fullResponse: false
+})
+
+const toFeature = bundle => {
+ return({
+  type: "Feature",
+  geometry: {type: "LineString", coordinates: JSON.parse(bundle[2]).data.trip.geometry},
+  properties: Object.assign({}, {id: bundle[0]}, bundle[1])
+})}
 
 class GeoJSONSource {
   constructor(uri, callback){
@@ -39,34 +56,29 @@ class GeoJSONSource {
       method: 'POST',
       headers: {
         'Content-Type': 'application/graphql'
-      }
-    }, function (err, res, body){
-      if (err){
+      },
+      fullResponse: false
+    })
+    .then((body) => {
+      const shapes = groupBy(JSON.parse(body).data.trips, trip => trip.shapeId)
+      const shapeIds = Object.keys(shapes)
+      const shapePromises = shapeIds.map(shapeId => request(tripRequiest(uri, shapes[shapeId][0].gtfsId)))
+
+      Promise.all(shapePromises).then(geometries => {
+        const shapeBundles = zip(shapeIds, shapeIds.map(shapeId => shapes[shapeId][0].route), geometries)
+        const geoJSON = {type: "FeatureCollection", features: shapeBundles.map(toFeature)}
+        this.tileIndex = geojsonVt(geoJSON, {maxZoom: 20, buffer: 512}); //TODO: this should be configurable
+        console.log("all ready")
+        callback(null, this)
+      }).catch((err) => {
         console.log(err)
         callback(err);
-        return;
-      }
-      const geoJSON = {type: "FeatureCollection", features: JSON.parse(body).data.stops.map(stop => ({
-        type: "Feature",
-        geometry: {type: "Point", coordinates: [stop.lon, stop.lat]},
-        properties: {
-          gtfsId: stop.gtfsId,
-          name: stop.name,
-          code: stop.code,
-          platform: stop.platformCode,
-          parentStation: stop.parentStation == null ? null : stop.parentStation.gtfsId,
-          type: stop.patterns == null ? null : [...new Set(stop.patterns.map(pattern => pattern.route.type))].join(","),
-          patterns: stop.patterns == null ? null : JSON.stringify(stop.patterns.map(pattern => ({
-            headsign: pattern.headsign,
-            type: pattern.route.type,
-            shortName: pattern.route.shortName
-          })))
-        }
-      }))}
-
-      this.tileIndex = geojsonVt(geoJSON, {maxZoom: 20, buffer: 512}); //TODO: this should be configurable
-      callback(null, this)
-    }.bind(this));
+      })
+    })
+    .catch((err) => {
+      console.log(err)
+      callback(err);
+    })
   };
 
   getTile(z, x, y, callback){
@@ -76,7 +88,7 @@ class GeoJSONSource {
       tile = {features: []}
     }
 
-    zlib.gzip(vtPbf.fromGeojsonVt({stops: tile}), function (err, buffer) {
+    zlib.gzip(vtPbf.fromGeojsonVt({routes: tile}), function (err, buffer) {
       if (err){
         callback(err);
         return;
@@ -94,7 +106,7 @@ class GeoJSONSource {
       scheme: "tms",
       vector_layers: [{
         description: "",
-        id: "stops"
+        id: "routes"
       }]
     })
   }
@@ -103,5 +115,5 @@ class GeoJSONSource {
 module.exports = GeoJSONSource
 
 module.exports.registerProtocols = (tilelive) => {
-  tilelive.protocols['otpstops:'] = GeoJSONSource
+  tilelive.protocols['otproutes:'] = GeoJSONSource
 }

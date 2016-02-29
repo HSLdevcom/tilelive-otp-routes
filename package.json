@@ -1,5 +1,5 @@
 {
-  "name": "tilelive-otp-stops",
+  "name": "tilelive-otp-routes",
   "version": "0.1.0",
   "description": "",
   "main": "index.js",
@@ -10,6 +10,8 @@
   "license": "ISC",
   "dependencies": {
     "geojson-vt": "^2.1.8",
+    "lodash.groupby": "^4.2.0",
+    "lodash.zip": "^4.0.0",
     "requestretry": "^1.6.0",
     "vt-pbf": "^2.0.2"
   }
