@@ -51,7 +51,7 @@ class GeoJSONSource {
     request({
       url: uri,
       body: query,
-      maxAttempts: 20,
+      maxAttempts: 120,
       retryDelay: 30000,
       method: 'POST',
       headers: {
