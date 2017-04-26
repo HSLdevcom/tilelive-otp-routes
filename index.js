@@ -13,7 +13,7 @@ const query = `
       gtfsId
       shapeId
       route{
-        type
+        mode
         shortName
         gtfsId
       }
