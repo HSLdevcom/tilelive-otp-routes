@@ -90,7 +90,9 @@ class GeoJSONSource {
       tile = {features: []}
     }
 
-    zlib.gzip(vtPbf.fromGeojsonVt({routes: tile}), function (err, buffer) {
+    const data = Buffer.from(vtPbf.fromGeojsonVt({routes: tile}));
+
+    zlib.gzip(data, function (err, buffer) {
       if (err){
         callback(err);
         return;
